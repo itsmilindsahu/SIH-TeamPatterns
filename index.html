@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arabian Sea — 3D Ocean Viewer | SIH Team Patterns</title>
+  <meta name="description" content="Interactive 3D visualization of Arabian Sea oceanographic data from INCOIS ARGO float datasets. Built for Smart India Hackathon by Team Patterns." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+  <style>
+    :root {
+      --bg:        #080e1d;
+      --surface:   #0f1729;
+      --panel:     rgba(15, 23, 41, 0.92);
+      --border:    rgba(99, 179, 237, 0.12);
+      --accent:    #38bdf8;
+      --accent2:   #06b6d4;
+      --danger:    #f87171;
+      --success:   #34d399;
+      --text:      #e2e8f0;
+      --muted:     #94a3b8;
+      --sidebar-w: 300px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      height: 56px;
+      display: flex; align-items: center; gap: 12px;
+      padding: 0 20px;
+      background: linear-gradient(90deg, #051526 0%, #0c1f3f 50%, #051a2e 100%);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 15px; font-weight: 600;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .header-tag {
+      margin-left: auto;
+      font-size: 11px; font-weight: 500; color: var(--muted);
+      padding: 3px 10px; border: 1px solid var(--border); border-radius: 99px;
+    }
+
+    .layout { display: flex; height: 100vh; padding-top: 56px; }
+
+    aside {
+      width: var(--sidebar-w); flex-shrink: 0;
+      overflow-y: auto;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 2px;
+      padding-bottom: 20px;
+    }
+    aside::-webkit-scrollbar { width: 4px; }
+    aside::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+    .panel {
+      margin: 10px 12px 0;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px;
+    }
+    .panel-title {
+      font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--accent); margin-bottom: 10px;
+    }
+
+    .upload-zone {
+      border: 2px dashed var(--border); border-radius: 10px;
+      padding: 18px 10px; text-align: center; cursor: pointer;
+      transition: all 0.2s; position: relative;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--accent); background: rgba(56, 189, 248, 0.06);
+    }
+    .upload-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%;
+    }
+    .upload-icon { font-size: 24px; margin-bottom: 6px; }
+    .upload-text { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .upload-text strong { color: var(--accent); }
+
+    .btn {
+      width: 100%; padding: 9px;
+      border: none; border-radius: 8px;
+      font-family: inherit; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all 0.18s;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #000;
+      margin-top: 8px;
+    }
+    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    .form-group { margin-bottom: 12px; }
+    .form-group:last-child { margin-bottom: 0; }
+    label {
+      display: block; font-size: 11px; font-weight: 500;
+      color: var(--muted); margin-bottom: 5px;
+    }
+    select {
+      width: 100%; background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border); border-radius: 7px;
+      color: var(--text); font-family: inherit; font-size: 12px;
+      padding: 7px 10px; appearance: none; outline: none; cursor: pointer;
+      transition: border-color 0.18s;
+    }
+    select:hover, select:focus { border-color: var(--accent); }
+
+    input[type="range"] {
+      width: 100%; background: transparent;
+      border: none; outline: none; cursor: pointer;
+      accent-color: var(--accent);
+    }
+    .depth-row { display: flex; align-items: center; gap: 8px; }
+    .depth-value {
+      min-width: 52px; text-align: right;
+      font-size: 12px; font-weight: 600; color: var(--accent); flex-shrink: 0;
+    }
+
+    .view-modes { display: flex; flex-direction: column; gap: 6px; }
+    .view-mode-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--border); border-radius: 8px;
+      cursor: pointer; transition: all 0.18s; font-size: 12px;
+    }
+    .view-mode-btn:hover { border-color: var(--accent2); }
+    .view-mode-btn.active {
+      border-color: var(--accent); background: rgba(56, 189, 248, 0.1); color: var(--accent);
+    }
+    .view-mode-btn input { display: none; }
+    .mode-icon { font-size: 16px; }
+
+    .stat-row {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 11px; padding: 4px 0; border-bottom: 1px solid var(--border);
+    }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-row .key { color: var(--muted); }
+    .stat-row .val { font-weight: 600; color: var(--text); }
+
+    main {
+      flex: 1; display: flex; flex-direction: column;
+      overflow: hidden; position: relative;
+    }
+    #chart { flex: 1; width: 100%; }
+
+    .caption {
+      padding: 8px 20px; font-size: 11px; color: var(--muted);
+      border-top: 1px solid var(--border); background: rgba(0,0,0,0.3); min-height: 32px;
+    }
+
+    #loading {
+      position: absolute; inset: 0;
+      background: rgba(8, 14, 29, 0.85);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      z-index: 50; transition: opacity 0.3s;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 13px; color: var(--muted); }
+
+    #welcome {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 20px; padding: 40px;
+      background: radial-gradient(ellipse at center, rgba(56,189,248,0.06) 0%, transparent 70%);
+    }
+    #welcome.hidden { display: none; }
+    .welcome-icon { font-size: 64px; animation: float 3s ease-in-out infinite; }
+    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+    .welcome-title { font-size: 22px; font-weight: 700; text-align: center; }
+    .welcome-sub { font-size: 13px; color: var(--muted); text-align: center; max-width: 380px; line-height: 1.6; }
+    .welcome-steps { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    .step {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 10px;
+      font-size: 12px;
+    }
+
+    #toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 200;
+      padding: 10px 18px; border-radius: 10px;
+      font-size: 12px; font-weight: 500;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      transition: all 0.3s; opacity: 0; transform: translateY(20px);
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+    #toast.success { background: var(--success); color: #000; }
+    #toast.error   { background: var(--danger); color: #fff; }
+    #toast.info    { background: var(--accent); color: #000; }
+
+    .disabled { opacity: 0.4; pointer-events: none; }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <div class="logo">🌊</div>
+  <h1>Arabian Sea — 3D Ocean Viewer</h1>
+  <span class="header-tag">SIH · Team Patterns</span>
+</header>
+
+<div class="layout">
+
+  <aside>
+    <div class="panel">
+      <div class="panel-title">Data Source</div>
+      <div class="upload-zone" id="upload-zone">
+        <input type="file" id="csv-input" accept=".csv" />
+        <div class="upload-icon">📊</div>
+        <div class="upload-text">
+          <strong>Click or drag</strong> a CSV file<br>
+          <span style="font-size:10px">Columns: latitude, longitude, depth, variables</span>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="loadSampleData()">🌊 Load Sample Data</button>
+    </div>
+
+    <div class="panel disabled" id="controls-panel">
+      <div class="panel-title">Controls</div>
+      <div class="form-group">
+        <label>Variable</label>
+        <select id="variable-select" onchange="onVariableChange(this.value)"></select>
+      </div>
+      <div class="form-group">
+        <label>Depth (m)</label>
+        <div class="depth-row">
+          <input type="range" id="depth-slider" min="0" max="0" value="0" oninput="onDepthChange(this.value)" />
+          <span class="depth-value" id="depth-display">—</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>View Mode</label>
+        <div class="view-modes">
+          <label class="view-mode-btn active" id="mode-slice">
+            <input type="radio" name="viewmode" value="slice" checked onchange="onModeChange('slice')" />
+            <span class="mode-icon">🗺️</span><span>Depth Slice</span>
+          </label>
+          <label class="view-mode-btn" id="mode-volume">
+            <input type="radio" name="viewmode" value="volume" onchange="onModeChange('volume')" />
+            <span class="mode-icon">🫧</span><span>Point Cloud (Full Volume)</span>
+          </label>
+          <label class="view-mode-btn" id="mode-sweep">
+            <input type="radio" name="viewmode" value="sweep" onchange="onModeChange('sweep')" />
+            <span class="mode-icon">🎬</span><span>Depth Sweep Animation</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel disabled" id="argo-panel">
+      <div class="panel-title">ARGO Float Overlay</div>
+      <div class="upload-zone" style="padding:12px 10px">
+        <input type="file" id="argo-input" accept=".csv" onchange="loadArgoFile(this)" />
+        <div class="upload-icon" style="font-size:18px">📡</div>
+        <div class="upload-text">CSV: lat, lon, depth, value</div>
+      </div>
+      <div id="argo-status" style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center"></div>
+    </div>
+
+    <div class="panel disabled" id="info-panel">
+      <div class="panel-title">Dataset Info</div>
+      <div id="info-content"></div>
+    </div>
+  </aside>
+
+  <main>
+    <div id="welcome">
+      <div class="welcome-icon">🌊</div>
+      <div class="welcome-title">Arabian Sea 3D Ocean Viewer</div>
+      <div class="welcome-sub">Interactive visualization of INCOIS ARGO float oceanographic data.<br>Upload a CSV or load the built-in sample dataset to explore.</div>
+      <div class="welcome-steps">
+        <div class="step">📊 Upload CSV or load sample</div>
+        <div class="step">🎛️ Pick variable and depth</div>
+        <div class="step">🌐 Explore 3D ocean data</div>
+      </div>
+    </div>
+
+    <div id="chart"></div>
+
+    <div id="loading" class="hidden">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loading-text">Processing data…</div>
+    </div>
+
+    <div class="caption" id="caption"></div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const state = {
+  data: null, variables: [], depths: [],
+  currentVariable: null, currentDepth: null,
+  viewMode: 'slice', argoData: null
+};
+
+function showToast(msg, type = 'info', dur = 3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show ' + type;
+  setTimeout(() => { t.className = ''; }, dur);
+}
+function showLoading(msg) {
+  document.getElementById('loading-text').textContent = msg || 'Processing…';
+  document.getElementById('loading').classList.remove('hidden');
+}
+function hideLoading() { document.getElementById('loading').classList.add('hidden'); }
+function enable(...ids) { ids.forEach(id => document.getElementById(id).classList.remove('disabled')); }
+function uniq(arr) { return [...new Set(arr)].sort((a, b) => a - b); }
+
+// Sample data
+function generateSampleData() {
+  const rows = [];
+  const lats = [8, 10.5, 13, 15.5, 18, 20.5, 23, 25.5, 28, 30];
+  const lons = [52, 55, 58, 61, 64, 67, 70, 73, 76, 79];
+  const depths = [0, 10, 25, 50, 100, 200, 500, 1000];
+  lats.forEach(lat => { lons.forEach(lon => { depths.forEach(depth => {
+    const n = () => (Math.random() - 0.5);
+    const temp = 28 - (lat - 8) * 0.28 - depth * 0.013 + n() * 1.2;
+    const salt = 36.8 + (lat - 8) * 0.04 - depth * 0.002 + n() * 0.25;
+    const o2   = 6.5 - depth * 0.004 + n() * 0.3;
+    rows.push({ latitude: lat, longitude: lon, depth,
+      temperature: +temp.toFixed(3), salinity: +salt.toFixed(3),
+      dissolved_oxygen: +Math.max(0, o2).toFixed(3) });
+  }); }); });
+  return rows;
+}
+
+function loadSampleData() {
+  showLoading('Generating sample Arabian Sea data…');
+  setTimeout(() => {
+    ingestData(generateSampleData(), 'Sample — Arabian Sea (10×10 grid, 8 depths)');
+    hideLoading();
+    showToast('Sample data loaded — 800 points', 'success');
+  }, 150);
+}
+
+// CSV upload
+document.getElementById('csv-input').addEventListener('change', function () {
+  const file = this.files[0]; if (!file) return;
+  showLoading('Parsing ' + file.name + '…');
+  Papa.parse(file, {
+    header: true, dynamicTyping: true, skipEmptyLines: true,
+    complete(result) {
+      const required = ['latitude', 'longitude', 'depth'];
+      const cols = Object.keys(result.data[0] || {});
+      const miss = required.filter(c => !cols.includes(c));
+      if (miss.length) { hideLoading(); showToast('Missing columns: ' + miss.join(', '), 'error', 5000); return; }
+      ingestData(result.data, file.name); hideLoading();
+      showToast('Loaded ' + result.data.length.toLocaleString() + ' rows', 'success');
+    },
+    error(e) { hideLoading(); showToast('Parse error: ' + e.message, 'error', 5000); }
+  });
+});
+
+// Drag-and-drop
+const zone = document.getElementById('upload-zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith('.csv')) {
+    const dt = new DataTransfer(); dt.items.add(file);
+    document.getElementById('csv-input').files = dt.files;
+    document.getElementById('csv-input').dispatchEvent(new Event('change'));
+  } else { showToast('Please drop a CSV file', 'error'); }
+});
+
+// ARGO overlay
+function loadArgoFile(input) {
+  const file = input.files[0]; if (!file) return;
+  Papa.parse(file, {
+    header: true, dynamicTyping: true, skipEmptyLines: true,
+    complete(result) {
+      state.argoData = result.data;
+      document.getElementById('argo-status').textContent = result.data.length + ' float observations loaded';
+      showToast('ARGO floats loaded', 'success');
+      renderChart();
+    }
+  });
+}
+
+// Ingest
+function ingestData(rows, src) {
+  state.data = rows;
+  const cols = Object.keys(rows[0]);
+  state.variables = cols.filter(c => !['latitude', 'longitude', 'depth', 'time'].includes(c));
+  state.depths = uniq(rows.map(r => r.depth));
+  state.currentVariable = state.variables[0];
+  state.currentDepth = state.depths[Math.floor(state.depths.length / 2)];
+
+  const sel = document.getElementById('variable-select');
+  sel.innerHTML = state.variables.map(v => '<option value="' + v + '">' + v + '</option>').join('');
+  sel.value = state.currentVariable;
+
+  const slider = document.getElementById('depth-slider');
+  slider.max = state.depths.length - 1;
+  slider.value = Math.floor(state.depths.length / 2);
+  document.getElementById('depth-display').textContent = state.currentDepth + 'm';
+
+  const lats = uniq(rows.map(r => r.latitude));
+  const lons = uniq(rows.map(r => r.longitude));
+  document.getElementById('info-content').innerHTML =
+    '<div class="stat-row"><span class="key">Source</span><span class="val" style="font-size:10px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + src + '</span></div>' +
+    '<div class="stat-row"><span class="key">Total points</span><span class="val">' + rows.length.toLocaleString() + '</span></div>' +
+    '<div class="stat-row"><span class="key">Variables</span><span class="val">' + state.variables.length + '</span></div>' +
+    '<div class="stat-row"><span class="key">Depth levels</span><span class="val">' + state.depths.length + '</span></div>' +
+    '<div class="stat-row"><span class="key">Lat range</span><span class="val">' + lats[0] + '° – ' + lats[lats.length-1] + '°N</span></div>' +
+    '<div class="stat-row"><span class="key">Lon range</span><span class="val">' + lons[0] + '° – ' + lons[lons.length-1] + '°E</span></div>';
+
+  enable('controls-panel', 'argo-panel', 'info-panel');
+  document.getElementById('welcome').classList.add('hidden');
+  renderChart();
+}
+
+// Handlers
+function onVariableChange(v) { state.currentVariable = v; renderChart(); }
+function onDepthChange(idx) {
+  state.currentDepth = state.depths[parseInt(idx)];
+  document.getElementById('depth-display').textContent = state.currentDepth + 'm';
+  if (state.viewMode === 'slice') renderChart();
+}
+function onModeChange(mode) {
+  state.viewMode = mode;
+  ['slice', 'volume', 'sweep'].forEach(m =>
+    document.getElementById('mode-' + m).classList.toggle('active', m === mode));
+  renderChart();
+}
+
+// Slice helper
+function getSliceData(depth) {
+  const di = state.depths.indexOf(depth);
+  const gap = di < state.depths.length - 1 ? state.depths[di + 1] - state.depths[di]
+    : (state.depths[di] - state.depths[di - 1] || 10);
+  const tol = Math.max(gap * 0.6, 5);
+  const filtered = state.data.filter(r => Math.abs(r.depth - depth) <= tol);
+  if (!filtered.length) return null;
+  const lats = uniq(filtered.map(r => r.latitude));
+  const lons = uniq(filtered.map(r => r.longitude));
+  const lookup = {};
+  filtered.forEach(r => {
+    const v = r[state.currentVariable];
+    if (v === null || isNaN(v)) return;
+    const k = r.latitude + '_' + r.longitude;
+    (lookup[k] = lookup[k] || []).push(v);
+  });
+  const values = lats.map(lat =>
+    lons.map(lon => {
+      const a = lookup[lat + '_' + lon];
+      return a ? a.reduce((s, x) => s + x, 0) / a.length : null;
+    })
+  );
+  return { lats, lons, values };
+}
+
+// Base layout
+function baseLayout(title) {
+  return {
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    scene: {
+      xaxis: { title: 'Longitude', color: '#94a3b8', gridcolor: 'rgba(148,163,184,0.15)', backgroundcolor: 'rgba(8,14,29,0.5)' },
+      yaxis: { title: 'Latitude',  color: '#94a3b8', gridcolor: 'rgba(148,163,184,0.15)', backgroundcolor: 'rgba(8,14,29,0.5)' },
+      zaxis: { title: 'Depth (m)', color: '#94a3b8', gridcolor: 'rgba(148,163,184,0.15)', backgroundcolor: 'rgba(8,14,29,0.5)' },
+      bgcolor: 'rgba(8,14,29,0.4)'
+    },
+    title: { text: title, font: { color: '#e2e8f0', size: 15, family: 'Inter' } },
+    height: window.innerHeight - 88,
+    margin: { l: 0, r: 0, t: 50, b: 0 },
+    font: { family: 'Inter, sans-serif', color: '#e2e8f0' }
+  };
+}
+
+// Render
+function renderChart() {
+  if (!state.data) return;
+  showLoading('Rendering…');
+  setTimeout(() => {
+    try {
+      if (state.viewMode === 'slice')  renderDepthSlice();
+      else if (state.viewMode === 'volume') renderPointCloud();
+      else renderDepthSweep();
+    } catch(e) { hideLoading(); showToast('Render error: ' + e.message, 'error', 6000); }
+  }, 10);
+}
+
+function renderDepthSlice() {
+  const s = getSliceData(state.currentDepth);
+  if (!s) { hideLoading(); showToast('No data near depth ' + state.currentDepth + 'm', 'error'); return; }
+  const zp = s.values.map(row => row.map(() => -state.currentDepth));
+  const traces = [{
+    type: 'surface', x: s.lons, y: s.lats, z: zp, surfacecolor: s.values,
+    colorscale: 'Viridis',
+    colorbar: { title: { text: state.currentVariable, font: { color: '#94a3b8' } }, tickfont: { color: '#94a3b8' } },
+    hovertemplate: 'Lon: %{x}°<br>Lat: %{y}°<br>' + state.currentVariable + ': %{surfacecolor:.3f}<extra></extra>'
+  }];
+  if (state.argoData) {
+    const floats = state.argoData.filter(r => Math.abs((r.depth || 0) - state.currentDepth) <= 25);
+    if (floats.length) traces.push({
+      type: 'scatter3d',
+      x: floats.map(r => r.lon ?? r.longitude), y: floats.map(r => r.lat ?? r.latitude),
+      z: floats.map(() => -state.currentDepth),
+      mode: 'markers', marker: { size: 6, color: '#f87171' }, name: 'ARGO floats',
+      text: floats.map(r => 'ARGO: ' + (r.value ?? r[state.currentVariable] ?? '?')), hoverinfo: 'text'
+    });
+  }
+  const layout = baseLayout(state.currentVariable + ' at ' + state.currentDepth + ' m depth');
+  Plotly.react('chart', traces, layout, { responsive: true, displaylogo: false });
+  document.getElementById('caption').textContent =
+    'Showing ' + state.currentVariable + ' at ' + state.currentDepth + 'm — ' + s.lats.length + 'x' + s.lons.length + ' grid';
+  hideLoading();
+}
+
+function renderPointCloud() {
+  const v = state.currentVariable;
+  let pts = state.data.filter(r => r[v] !== null && !isNaN(r[v]));
+  if (pts.length > 20000) { const step = Math.ceil(pts.length / 20000); pts = pts.filter((_, i) => i % step === 0); }
+  const vals = pts.map(r => r[v]);
+  const vmin = Math.min(...vals), vmax = Math.max(...vals);
+  const traces = [{
+    type: 'scatter3d',
+    x: pts.map(r => r.longitude), y: pts.map(r => r.latitude), z: pts.map(r => -r.depth),
+    mode: 'markers',
+    marker: { size: 3, opacity: 0.75, color: vals, colorscale: 'Viridis', cmin: vmin, cmax: vmax,
+      colorbar: { title: { text: v, font: { color: '#94a3b8' } }, tickfont: { color: '#94a3b8' } } },
+    hovertemplate: 'Lon: %{x}°<br>Lat: %{y}°<br>Depth: %{z}m<br>' + v + ': %{marker.color:.3f}<extra></extra>'
+  }];
+  const layout = baseLayout(v + ' — Full Volume Point Cloud');
+  Plotly.react('chart', traces, layout, { responsive: true, displaylogo: false });
+  document.getElementById('caption').textContent =
+    'Point cloud of ' + v + ' — ' + pts.length.toLocaleString() + ' points across all depth levels';
+  hideLoading();
+}
+
+function renderDepthSweep() {
+  document.getElementById('loading-text').textContent = 'Building animation frames…';
+  const first = getSliceData(state.depths[0]);
+  if (!first) { hideLoading(); showToast('Could not build frames', 'error'); return; }
+  const zp0 = first.values.map(row => row.map(() => -state.depths[0]));
+  const traces = [{
+    type: 'surface', x: first.lons, y: first.lats, z: zp0, surfacecolor: first.values,
+    colorscale: 'Viridis',
+    colorbar: { title: { text: state.currentVariable, font: { color: '#94a3b8' } }, tickfont: { color: '#94a3b8' } }
+  }];
+  const frames = state.depths.map(depth => {
+    const s = getSliceData(depth); if (!s) return null;
+    return { data: [{ x: s.lons, y: s.lats, z: s.values.map(r => r.map(() => -depth)), surfacecolor: s.values }], name: 'd' + depth };
+  }).filter(Boolean);
+  const zMin = -Math.max(...state.depths), zMax = -Math.min(...state.depths);
+  const layout = baseLayout(state.currentVariable + ' — Depth Sweep');
+  layout.scene.zaxis.range = [zMin, zMax];
+  layout.updatemenus = [{
+    type: 'buttons', showactive: false,
+    y: 1.08, x: 0.01, xanchor: 'left', yanchor: 'top',
+    bgcolor: 'rgba(56,189,248,0.15)', bordercolor: '#38bdf8',
+    font: { color: '#e2e8f0', size: 12 },
+    buttons: [
+      { label: '▶  Play', method: 'animate', args: [null, { frame: { duration: 450, redraw: true }, fromcurrent: true, transition: { duration: 200 } }] },
+      { label: '⏸  Pause', method: 'animate', args: [[null], { frame: { duration: 0, redraw: false }, mode: 'immediate' }] }
+    ]
+  }];
+  Plotly.react('chart', traces, layout, { responsive: true, displaylogo: false })
+    .then(() => Plotly.addFrames('chart', frames));
+  document.getElementById('caption').textContent =
+    'Click Play to sweep through ' + state.depths.length + ' depth levels for ' + state.currentVariable;
+  hideLoading();
+}
+
+window.addEventListener('resize', () => {
+  if (state.data) Plotly.relayout('chart', { height: window.innerHeight - 88 });
+});
+</script>
+</body>
+</html>

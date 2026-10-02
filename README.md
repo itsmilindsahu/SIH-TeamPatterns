@@ -1,54 +1,69 @@
 # SIH-TeamPatterns — Arabian Sea 3D Ocean Viewer
 
-A full-stack ocean data visualization tool built for **Smart India Hackathon (SIH)** by Team Patterns.
+> **Live Demo:** [https://itsmilindsahu.github.io/SIH-TeamPatterns/](https://itsmilindsahu.github.io/SIH-TeamPatterns/)
 
-## Overview
+An interactive 3D visualization tool for Arabian Sea oceanographic data, built for **Smart India Hackathon (SIH)** by Team Patterns.
 
-This project provides an interactive 3D viewer for Arabian Sea oceanographic data sourced from **INCOIS ARGO float** datasets. It supports both NetCDF (`.nc`) and CSV formats, offering multiple visualization modes.
+## Features
 
-## Components
+| Feature | Description |
+|---------|-------------|
+| 🗺️ **Depth Slice** | 3D surface plot of any variable at a chosen depth level |
+| 🫧 **Point Cloud** | Full-volume scatter across all depths, color-coded by value |
+| 🎬 **Depth Sweep** | Animated playback sweeping through all depth levels |
+| 📡 **ARGO Overlay** | Overlay observed ARGO float positions on any view |
+| 📊 **CSV Upload** | Upload your own lat/lon/depth data |
+| 🌊 **Sample Data** | Built-in Arabian Sea sample dataset to explore immediately |
 
-### `main_sih.py` — FastAPI Backend
-A REST API server that loads and serves ocean data:
-- `POST /load_file` — Upload a `.nc` or `.csv` file
-- `GET /metadata` — Returns variables, depth levels, and file info
-- `GET /slice` — Returns a 2D lat/lon slice at a given depth and time index
-- `GET /volume` — Returns full 3D volume data for isosurface rendering
+## Usage
 
-Supports auto-loading of a default NetCDF file on startup.
+### Online (GitHub Pages)
 
-### `viewer_app.py` — Streamlit Frontend
-An interactive dashboard built with Streamlit and Plotly:
-- **Depth Slice View** — 3D surface plot at a selected depth level
-- **Isosurface (Full Volume)** — Point cloud or opacity-mapped volumetric rendering
-- **Continuous Depth Sweep** — Animated playback through all depth levels
-- **ARGO Float Overlay** — Overlay observed float data on the map
-- **GPR Estimation** — Gaussian Process Regression model to estimate values at unobserved locations
+Open the live link above — no installation needed.
 
-## Tech Stack
+1. Click **Load Sample Data** or upload a CSV file
+2. Pick a variable (e.g. `temperature`, `salinity`)
+3. Adjust the depth slider
+4. Switch between view modes
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | FastAPI, xarray, NumPy, pandas |
-| Frontend | Streamlit, Plotly, requests |
-| ML Model | scikit-learn (GPR), joblib |
-| Data Format | NetCDF4, CSV |
+### CSV Format
 
-## Getting Started
+Your CSV must have at minimum:
+
+```csv
+latitude,longitude,depth,temperature,salinity
+8.0,52.0,0,28.1,36.9
+8.0,52.0,50,25.3,37.0
+...
+```
+
+### Local Development (Python backend)
+
+For NetCDF (`.nc`) support and the GPR estimation model, run the full Python stack locally:
 
 ```bash
-# Install dependencies
 pip install fastapi uvicorn xarray numpy pandas streamlit plotly scikit-learn joblib
 
-# Start the backend API (port 8002)
+# Terminal 1 — FastAPI backend (port 8002)
 uvicorn main_sih:app --port 8002 --reload
 
-# In a separate terminal, start the Streamlit frontend
+# Terminal 2 — Streamlit frontend
 streamlit run viewer_app.py
 ```
 
-Then open [http://localhost:8501](http://localhost:8501) in your browser.
+Then open [http://localhost:8501](http://localhost:8501).
 
-## Data Format (CSV)
+## Tech Stack
 
-CSV files must contain at minimum: `latitude`, `longitude`, `depth`, plus one or more variable columns (e.g., `temperature`, `salinity`).
+| Layer | GitHub Pages | Local |
+|-------|-------------|-------|
+| Frontend | HTML + Plotly.js | Streamlit + Plotly |
+| Backend | — (client-side JS) | FastAPI + xarray |
+| Data | CSV | NetCDF / CSV |
+| ML | — | scikit-learn GPR |
+
+## Enable GitHub Pages
+
+1. Go to **Settings → Pages** in your repository
+2. Under **Source**, select **GitHub Actions**
+3. Push to `main` — the workflow deploys automatically
