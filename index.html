@@ -329,6 +329,17 @@ const state = {
   viewMode: 'slice', argoData: null
 };
 
+// Smart colorscale per variable type
+function getColorscale(variable) {
+  const v = (variable || '').toLowerCase();
+  if (v.includes('temp'))   return 'RdYlBu_r';
+  if (v.includes('salt') || v.includes('salin')) return 'YlOrRd';
+  if (v.includes('oxygen') || v.includes('o2'))  return 'Blues';
+  if (v.includes('chlor'))  return 'Greens';
+  if (v.includes('vel') || v.includes('current')) return 'RdBu';
+  return 'Viridis';
+}
+
 function showToast(msg, type = 'info', dur = 3000) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = 'show ' + type;
@@ -488,115 +499,190 @@ function getSliceData(depth) {
   return { lats, lons, values };
 }
 
-// Base layout
-function baseLayout(title) {
+// ─── Layout helpers ───────────────────────────────────────────────────────────
+function sceneAxes(ztitle) {
+  const ax = t => ({ title: t, color: '#94a3b8', gridcolor: 'rgba(148,163,184,0.12)', backgroundcolor: 'rgba(6,11,22,0.7)', zerolinecolor: 'rgba(148,163,184,0.15)' });
+  return { xaxis: ax('Longitude'), yaxis: ax('Latitude'), zaxis: ax(ztitle), bgcolor: 'rgba(6,11,22,0.7)' };
+}
+function baseLayout(title, ztitle) {
   return {
     paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-    scene: {
-      xaxis: { title: 'Longitude', color: '#94a3b8', gridcolor: 'rgba(148,163,184,0.15)', backgroundcolor: 'rgba(8,14,29,0.5)' },
-      yaxis: { title: 'Latitude',  color: '#94a3b8', gridcolor: 'rgba(148,163,184,0.15)', backgroundcolor: 'rgba(8,14,29,0.5)' },
-      zaxis: { title: 'Depth (m)', color: '#94a3b8', gridcolor: 'rgba(148,163,184,0.15)', backgroundcolor: 'rgba(8,14,29,0.5)' },
-      bgcolor: 'rgba(8,14,29,0.4)'
-    },
+    scene: { ...sceneAxes(ztitle || 'Depth (m)'), camera: { eye: { x: 1.45, y: -1.45, z: 0.95 } } },
     title: { text: title, font: { color: '#e2e8f0', size: 15, family: 'Inter' } },
     height: window.innerHeight - 88,
-    margin: { l: 0, r: 0, t: 50, b: 0 },
+    margin: { l: 0, r: 0, t: 52, b: 0 },
     font: { family: 'Inter, sans-serif', color: '#e2e8f0' }
   };
 }
+function colorbar(variable) {
+  return { title: { text: variable, font: { color: '#94a3b8', size: 11 } }, tickfont: { color: '#94a3b8', size: 10 }, bgcolor: 'rgba(0,0,0,0)', bordercolor: 'rgba(148,163,184,0.15)', thickness: 14, len: 0.6 };
+}
+const CFG = { responsive: true, displaylogo: false };
 
-// Render
+// ─── Render dispatcher ────────────────────────────────────────────────────────
 function renderChart() {
   if (!state.data) return;
   showLoading('Rendering…');
   setTimeout(() => {
     try {
-      if (state.viewMode === 'slice')  renderDepthSlice();
+      if      (state.viewMode === 'slice')  renderDepthSlice();
       else if (state.viewMode === 'volume') renderPointCloud();
-      else renderDepthSweep();
+      else                                  renderDepthSweep();
     } catch(e) { hideLoading(); showToast('Render error: ' + e.message, 'error', 6000); }
   }, 10);
 }
 
+// ─── 1. DEPTH SLICE — terrain surface (height = data value) ──────────────────
 function renderDepthSlice() {
   const s = getSliceData(state.currentDepth);
-  if (!s) { hideLoading(); showToast('No data near depth ' + state.currentDepth + 'm', 'error'); return; }
-  const zp = s.values.map(row => row.map(() => -state.currentDepth));
+  if (!s) { hideLoading(); showToast('No data near ' + state.currentDepth + 'm', 'error'); return; }
+
   const traces = [{
-    type: 'surface', x: s.lons, y: s.lats, z: zp, surfacecolor: s.values,
-    colorscale: 'Viridis',
-    colorbar: { title: { text: state.currentVariable, font: { color: '#94a3b8' } }, tickfont: { color: '#94a3b8' } },
-    hovertemplate: 'Lon: %{x}°<br>Lat: %{y}°<br>' + state.currentVariable + ': %{surfacecolor:.3f}<extra></extra>'
+    type: 'surface',
+    x: s.lons, y: s.lats,
+    z: s.values,                       // HEIGHT encodes the actual data value
+    colorscale: getColorscale(state.currentVariable),
+    colorbar: colorbar(state.currentVariable),
+    lighting: { ambient: 0.72, diffuse: 0.95, specular: 0.08, roughness: 0.85 },
+    lightposition: { x: 2000, y: 0, z: 8000 },
+    contours: { z: { show: true, usecolormap: true, project: { z: true }, highlightcolor: 'rgba(255,255,255,0.5)', width: 1.2 } },
+    hovertemplate: 'Lon: %{x:.2f}°  Lat: %{y:.2f}°<br><b>' + state.currentVariable + ': %{z:.4f}</b><extra></extra>'
   }];
+
   if (state.argoData) {
     const floats = state.argoData.filter(r => Math.abs((r.depth || 0) - state.currentDepth) <= 25);
-    if (floats.length) traces.push({
-      type: 'scatter3d',
-      x: floats.map(r => r.lon ?? r.longitude), y: floats.map(r => r.lat ?? r.latitude),
-      z: floats.map(() => -state.currentDepth),
-      mode: 'markers', marker: { size: 6, color: '#f87171' }, name: 'ARGO floats',
-      text: floats.map(r => 'ARGO: ' + (r.value ?? r[state.currentVariable] ?? '?')), hoverinfo: 'text'
-    });
+    if (floats.length) {
+      const allZ = s.values.flat().filter(v => v !== null);
+      const zFloor = Math.min(...allZ) - (Math.max(...allZ) - Math.min(...allZ)) * 0.15;
+      traces.push({ type: 'scatter3d', mode: 'markers', name: 'ARGO floats',
+        x: floats.map(r => r.lon ?? r.longitude), y: floats.map(r => r.lat ?? r.latitude), z: floats.map(() => zFloor),
+        marker: { size: 7, color: '#f87171', line: { color: '#fff', width: 1 } },
+        text: floats.map(r => 'ARGO: ' + (r.value ?? r[state.currentVariable] ?? '?')), hoverinfo: 'text' });
+    }
   }
-  const layout = baseLayout(state.currentVariable + ' at ' + state.currentDepth + ' m depth');
-  Plotly.react('chart', traces, layout, { responsive: true, displaylogo: false });
+
+  const layout = baseLayout(state.currentVariable + '  —  ' + state.currentDepth + ' m depth', state.currentVariable);
+  Plotly.react('chart', traces, layout, CFG);
   document.getElementById('caption').textContent =
-    'Showing ' + state.currentVariable + ' at ' + state.currentDepth + 'm — ' + s.lats.length + 'x' + s.lons.length + ' grid';
+    'Terrain height = ' + state.currentVariable + ' at ' + state.currentDepth + 'm  ·  ' + s.lats.length + '×' + s.lons.length + ' grid';
   hideLoading();
 }
 
+// ─── 2. POINT CLOUD — depth-banded scatter with opacity gradient ──────────────
 function renderPointCloud() {
   const v = state.currentVariable;
   let pts = state.data.filter(r => r[v] !== null && !isNaN(r[v]));
   if (pts.length > 20000) { const step = Math.ceil(pts.length / 20000); pts = pts.filter((_, i) => i % step === 0); }
+
   const vals = pts.map(r => r[v]);
   const vmin = Math.min(...vals), vmax = Math.max(...vals);
-  const traces = [{
-    type: 'scatter3d',
-    x: pts.map(r => r.longitude), y: pts.map(r => r.latitude), z: pts.map(r => -r.depth),
-    mode: 'markers',
-    marker: { size: 3, opacity: 0.75, color: vals, colorscale: 'Viridis', cmin: vmin, cmax: vmax,
-      colorbar: { title: { text: v, font: { color: '#94a3b8' } }, tickfont: { color: '#94a3b8' } } },
-    hovertemplate: 'Lon: %{x}°<br>Lat: %{y}°<br>Depth: %{z}m<br>' + v + ': %{marker.color:.3f}<extra></extra>'
-  }];
-  const layout = baseLayout(v + ' — Full Volume Point Cloud');
-  Plotly.react('chart', traces, layout, { responsive: true, displaylogo: false });
+  const maxD = Math.max(...state.depths);
+  const BANDS = Math.min(4, state.depths.length);
+  const bSize = maxD / BANDS;
+
+  // Split into depth bands — shallower = larger, more opaque markers
+  const traces = Array.from({ length: BANDS }, (_, b) => {
+    const lo = b * bSize, hi = (b + 1) * bSize;
+    const sub = pts.filter(r => r.depth >= lo && r.depth < hi);
+    if (!sub.length) return null;
+    const sv = sub.map(r => r[v]);
+    return {
+      type: 'scatter3d', mode: 'markers', name: lo.toFixed(0) + '–' + hi.toFixed(0) + ' m',
+      x: sub.map(r => r.longitude), y: sub.map(r => r.latitude), z: sub.map(r => -r.depth),
+      marker: {
+        size: 4 - b * 0.5, opacity: 0.88 - b * 0.14,
+        color: sv, colorscale: getColorscale(v), cmin: vmin, cmax: vmax,
+        showscale: b === 0, colorbar: b === 0 ? colorbar(v) : undefined,
+        line: { color: 'rgba(255,255,255,0.06)', width: 0.4 }
+      },
+      hovertemplate: 'Lon: %{x:.2f}°  Lat: %{y:.2f}°  Depth: %{z}m<br><b>' + v + ': %{marker.color:.4f}</b><extra>' + lo.toFixed(0) + '–' + hi.toFixed(0) + 'm</extra>'
+    };
+  }).filter(Boolean);
+
+  const layout = baseLayout(v + '  —  Full Volume', 'Depth (m, neg)');
+  layout.legend = { font: { color: '#94a3b8', size: 10 }, bgcolor: 'rgba(0,0,0,0.3)', bordercolor: 'rgba(148,163,184,0.15)' };
+  Plotly.react('chart', traces, layout, CFG);
   document.getElementById('caption').textContent =
-    'Point cloud of ' + v + ' — ' + pts.length.toLocaleString() + ' points across all depth levels';
+    v + ' scatter  ·  ' + pts.length.toLocaleString() + ' points  ·  ' + BANDS + ' depth bands (shallower = larger/brighter markers)';
   hideLoading();
 }
 
+// ─── 3. DEPTH SWEEP — morphing terrain + draggable slider ────────────────────
 function renderDepthSweep() {
-  document.getElementById('loading-text').textContent = 'Building animation frames…';
-  const first = getSliceData(state.depths[0]);
-  if (!first) { hideLoading(); showToast('Could not build frames', 'error'); return; }
-  const zp0 = first.values.map(row => row.map(() => -state.depths[0]));
+  document.getElementById('loading-text').textContent = 'Building frames…';
+
+  // Pre-compute all slices; find global [min, max] so color stays locked
+  let gMin = Infinity, gMax = -Infinity;
+  const slices = {};
+  state.depths.forEach(d => {
+    const s = getSliceData(d);
+    if (!s) return;
+    slices[d] = s;
+    s.values.forEach(row => row.forEach(v => { if (v !== null && !isNaN(v)) { gMin = Math.min(gMin, v); gMax = Math.max(gMax, v); } }));
+  });
+
+  const firstD = state.depths.find(d => slices[d]);
+  if (firstD === undefined) { hideLoading(); showToast('No data available', 'error'); return; }
+  const first = slices[firstD];
+  const cs = getColorscale(state.currentVariable);
+
   const traces = [{
-    type: 'surface', x: first.lons, y: first.lats, z: zp0, surfacecolor: first.values,
-    colorscale: 'Viridis',
-    colorbar: { title: { text: state.currentVariable, font: { color: '#94a3b8' } }, tickfont: { color: '#94a3b8' } }
+    type: 'surface',
+    x: first.lons, y: first.lats,
+    z: first.values,                   // terrain — same principle as depth slice
+    colorscale: cs, cmin: gMin, cmax: gMax,
+    colorbar: colorbar(state.currentVariable),
+    lighting: { ambient: 0.72, diffuse: 0.95, specular: 0.08, roughness: 0.85 },
+    lightposition: { x: 2000, y: 0, z: 8000 },
+    contours: { z: { show: true, usecolormap: true, project: { z: true }, width: 1.2 } },
+    hovertemplate: 'Lon: %{x:.2f}°  Lat: %{y:.2f}°<br><b>' + state.currentVariable + ': %{z:.4f}</b><extra></extra>'
   }];
+
+  // Each frame: terrain morphs as depth changes (much more interesting than flat planes)
   const frames = state.depths.map(depth => {
-    const s = getSliceData(depth); if (!s) return null;
-    return { data: [{ x: s.lons, y: s.lats, z: s.values.map(r => r.map(() => -depth)), surfacecolor: s.values }], name: 'd' + depth };
+    const s = slices[depth]; if (!s) return null;
+    return { data: [{ z: s.values, cmin: gMin, cmax: gMax }], name: 'd' + depth,
+             layout: { 'title.text': state.currentVariable + '  —  ' + depth + ' m depth' } };
   }).filter(Boolean);
-  const zMin = -Math.max(...state.depths), zMax = -Math.min(...state.depths);
-  const layout = baseLayout(state.currentVariable + ' — Depth Sweep');
-  layout.scene.zaxis.range = [zMin, zMax];
+
+  const layout = baseLayout(state.currentVariable + '  —  ' + firstD + ' m depth', state.currentVariable);
+
+  // Play / Pause buttons
   layout.updatemenus = [{
     type: 'buttons', showactive: false,
-    y: 1.08, x: 0.01, xanchor: 'left', yanchor: 'top',
-    bgcolor: 'rgba(56,189,248,0.15)', bordercolor: '#38bdf8',
+    y: -0.015, x: 0.5, xanchor: 'center', yanchor: 'top',
+    bgcolor: 'rgba(56,189,248,0.13)', bordercolor: '#38bdf8',
     font: { color: '#e2e8f0', size: 12 },
     buttons: [
-      { label: '▶  Play', method: 'animate', args: [null, { frame: { duration: 450, redraw: true }, fromcurrent: true, transition: { duration: 200 } }] },
-      { label: '⏸  Pause', method: 'animate', args: [[null], { frame: { duration: 0, redraw: false }, mode: 'immediate' }] }
+      { label: '▶  Play',  method: 'animate',
+        args: [null, { frame: { duration: 700, redraw: true }, fromcurrent: true, transition: { duration: 500, easing: 'cubic-in-out' } }] },
+      { label: '⏸  Pause', method: 'animate',
+        args: [[null], { frame: { duration: 0, redraw: false }, mode: 'immediate' }] }
     ]
   }];
-  Plotly.react('chart', traces, layout, { responsive: true, displaylogo: false })
-    .then(() => Plotly.addFrames('chart', frames));
+
+  // Draggable depth slider — each tick snaps to one depth level
+  layout.sliders = [{
+    active: state.depths.indexOf(firstD),
+    pad: { t: 30, b: 10 },
+    currentvalue: {
+      visible: true, prefix: 'Depth: ', suffix: ' m', xanchor: 'center',
+      font: { size: 12, color: '#38bdf8', family: 'Inter' }
+    },
+    transition: { duration: 450, easing: 'cubic-in-out' },
+    x: 0.04, len: 0.92, y: 0,
+    bgcolor: 'rgba(56,189,248,0.07)', bordercolor: 'rgba(56,189,248,0.25)',
+    tickcolor: 'rgba(56,189,248,0.35)', font: { color: '#94a3b8', size: 9 },
+    steps: state.depths.map(d => ({
+      method: 'animate', label: d + '',
+      args: [['d' + d], { mode: 'immediate', frame: { duration: 400, redraw: true }, transition: { duration: 350, easing: 'cubic-in-out' } }]
+    }))
+  }];
+
+  layout.margin.b = 80;
+  Plotly.react('chart', traces, layout, CFG).then(() => Plotly.addFrames('chart', frames));
   document.getElementById('caption').textContent =
-    'Click Play to sweep through ' + state.depths.length + ' depth levels for ' + state.currentVariable;
+    'Drag slider or click ▶ Play — terrain shape morphs as ' + state.currentVariable + ' changes with depth';
   hideLoading();
 }
 
